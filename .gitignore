@@ -1,0 +1,24 @@
+# Node modules (frontend)
+frontend/node_modules/
+
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+
+# Local/Dev/Temp files and folders
+agent_memory/
+chroma_memory/
+uploads/
+memory.db
+migrate_to_pinecone.py
+local.py
+file_storage.py
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Do NOT ignore .env
+!.env 

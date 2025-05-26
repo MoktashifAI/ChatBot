@@ -1,0 +1,1 @@
+// Check if file exists before attempting edits 
