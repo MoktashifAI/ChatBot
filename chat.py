@@ -604,6 +604,100 @@ def chat(conversation_id):
             
             # --- Decide if web search is needed ---
             use_web_search = force_web_search or should_use_web_search(message)
+            # --- Hierarchical Summarization/Q&A for file analysis ---
+            if file_id and document_context:
+                from chat import hierarchical_summarize, qa_over_summary
+                def llm_api_func(prompt, model=None):
+                    completion = groq_api_call(
+                        messages=[{"role": "user", "content": prompt}],
+                        model=model or MODEL,
+                        temperature=TEMPERATURE,
+                        stream=False
+                    )
+                    return completion.get("choices", [{}])[0].get("message", {}).get("content", "")
+                general_file_questions = [
+                    "what do you think of this file", "summarize this file", "analyze this file", "overview of this file"
+                ]
+                if any(q in message.lower() for q in general_file_questions):
+                    answer = hierarchical_summarize(document_context, llm_api_func)
+                else:
+                    answer = qa_over_summary(document_context, message, llm_api_func)
+                for chunk in answer.splitlines(keepends=True):
+                    partial_reply += chunk
+                    yield chunk
+                if partial_reply:
+                    memory_store.add(user_id, conversation_id, partial_reply, role="assistant", extra={"replyTo": reply_to} if reply_to else None)
+                    assistant_message = {"role": "assistant", "content": partial_reply}
+                    if reply_to:
+                        assistant_message["replyTo"] = reply_to
+                    messages.append(assistant_message)
+                    conversation["messages"] = messages
+                    conversation["updated_at"] = current_time
+                    conversations[conversation_index] = conversation
+                    mongo.db.users.update_one(
+                        {"_id": ObjectId(user_id)},
+                        {"$set": {"conversations": conversations}}
+                    )
+                return  # End after streaming hierarchical answer
+            if use_web_search:
+                auto_search_used = True
+                print("DEBUG: Using web search to answer question")
+                # Use cybersec_agent to answer
+                agent_result = answer_cybersec_query(message)
+                answer = agent_result.get("answer", "[No answer]")
+                # Stream the answer to the client
+                for chunk in answer.splitlines(keepends=True):
+                    partial_reply += chunk
+                    yield chunk
+                # Save to memory and conversation as assistant reply
+                if partial_reply:
+                    memory_store.add(user_id, conversation_id, partial_reply, role="assistant", extra={"replyTo": reply_to} if reply_to else None)
+                    assistant_message = {"role": "assistant", "content": partial_reply}
+                    if reply_to:
+                        assistant_message["replyTo"] = reply_to
+                    messages.append(assistant_message)
+                    conversation["messages"] = messages
+                    conversation["updated_at"] = current_time
+                    conversations[conversation_index] = conversation
+                    mongo.db.users.update_one(
+                        {"_id": ObjectId(user_id)},
+                        {"$set": {"conversations": conversations}}
+                    )
+                    
+                    # Extract and store facts from the response
+                    extract_and_store_facts(
+                        user_id,
+                        message,
+                        partial_reply,
+                        conversation_id,
+                        conversation_title
+                    )
+                return  # End after streaming web answer
+                
+            # --- Retrieve relevant memories from cross-conversation context ---
+            cybersec_memories = retrieve_user_memories(user_id, message, conversation_id)
+            
+            # Debug the cross-conversation memory retrieval
+            print(f"DEBUG CYBERSEC MEMORY: Retrieved {len(cybersec_memories['current'])} memories from current conversation")
+            print(f"DEBUG CYBERSEC MEMORY: Retrieved {len(cybersec_memories['other'])} memories from other conversations")
+            
+            if cybersec_memories['current']:
+                print(f"DEBUG CYBERSEC MEMORY: Sample current memory: {cybersec_memories['current'][0].get('text', '')[:100]}...")
+            
+            if cybersec_memories['other']:
+                print(f"DEBUG CYBERSEC MEMORY: Sample other memory: {cybersec_memories['other'][0].get('text', '')[:100]}...")
+                
+            # --- Retrieve relevant memories for this user and query from old memory system ---
+            relevant_memories = memory_store.get_relevant_memories(user_id, message, conversation_id)
+            
+            # Debug the memory retrieval
+            print(f"DEBUG MEMORY: Current conversation has {len(messages)} messages")
+            print(f"DEBUG MEMORY: Retrieved {len(relevant_memories['current'])} memories from current conversation")
+            print(f"DEBUG MEMORY: Retrieved {len(relevant_memories['other'])} memories from other conversations")
+            
+            # Print a sample of the current conversation memories
+            if relevant_memories['current']:
+                print(f"DEBUG MEMORY: Sample current memory: {relevant_memories['current'][0]['text'][:100]}...")
             
             # --- Get reply context (if replying to a message in current conversation) ---
             reply_context_block = ""
@@ -690,78 +784,7 @@ def chat(conversation_id):
                                               "\n---\n")
                 else:
                     print(f"DEBUG: No matching message found for reply_to: {reply_to}")
-            
-            # --- Auto-enable web search when replying to web search messages ---
-            if reply_to and not use_web_search:
-                # Check if we're replying to a message that was generated from web search
-                reply_idx = None
-                
-                # Find the index of the replied-to message
-                if isinstance(reply_to, dict) and reply_to.get('index') is not None:
-                    try:
-                        index = int(reply_to['index'])
-                        if 0 <= index < len(messages):
-                            reply_idx = index
-                    except (ValueError, TypeError):
-                        pass
-                
-                # If no valid index, fall back to content matching
-                if reply_idx is None:
-                    for idx, m in enumerate(messages):
-                        if ((isinstance(reply_to, dict) and m.get("content") == reply_to.get("content")) or
-                            (isinstance(reply_to, str) and m.get("content") == reply_to)):
-                            reply_idx = idx
-                            break
-                
-                # Check if the replied-to message was generated from web search
-                if reply_idx is not None and reply_idx < len(messages):
-                    replied_message = messages[reply_idx]
                     
-                    # Check if this message or the previous assistant message used web search
-                    was_web_search_message = False
-                    
-                    # If replying to an assistant message, check if it was from web search
-                    if replied_message.get("role") == "assistant" and replied_message.get("from_web_search"):
-                        was_web_search_message = True
-                        print(f"DEBUG: Auto-enabling web search - replying to assistant message from web search")
-                    
-                    # If replying to a user message, check if the following assistant message was from web search
-                    elif replied_message.get("role") == "user" and reply_idx + 1 < len(messages):
-                        next_message = messages[reply_idx + 1]
-                        if next_message.get("role") == "assistant" and next_message.get("from_web_search"):
-                            was_web_search_message = True
-                            print(f"DEBUG: Auto-enabling web search - replying to user message that got web search response")
-                    
-                    if was_web_search_message:
-                        use_web_search = True
-                        auto_search_used = True
-                        print(f"DEBUG: Automatically enabled web search for reply to web search message")
-            
-            # --- Retrieve relevant memories from cross-conversation context ---
-            cybersec_memories = retrieve_user_memories(user_id, message, conversation_id)
-            
-            # Debug the cross-conversation memory retrieval
-            print(f"DEBUG CYBERSEC MEMORY: Retrieved {len(cybersec_memories['current'])} memories from current conversation")
-            print(f"DEBUG CYBERSEC MEMORY: Retrieved {len(cybersec_memories['other'])} memories from other conversations")
-            
-            if cybersec_memories['current']:
-                print(f"DEBUG CYBERSEC MEMORY: Sample current memory: {cybersec_memories['current'][0].get('text', '')[:100]}...")
-            
-            if cybersec_memories['other']:
-                print(f"DEBUG CYBERSEC MEMORY: Sample other memory: {cybersec_memories['other'][0].get('text', '')[:100]}...")
-                
-            # --- Retrieve relevant memories for this user and query from old memory system ---
-            relevant_memories = memory_store.get_relevant_memories(user_id, message, conversation_id)
-            
-            # Debug the memory retrieval
-            print(f"DEBUG MEMORY: Current conversation has {len(messages)} messages")
-            print(f"DEBUG MEMORY: Retrieved {len(relevant_memories['current'])} memories from current conversation")
-            print(f"DEBUG MEMORY: Retrieved {len(relevant_memories['other'])} memories from other conversations")
-            
-            # Print a sample of the current conversation memories
-            if relevant_memories['current']:
-                print(f"DEBUG MEMORY: Sample current memory: {relevant_memories['current'][0]['text'][:100]}...")
-            
             # --- Format cybersec cross-conversation memories for LLM prompt ---
             cybersec_memory_prompt = ""
             if cybersec_memories["current"]:
@@ -773,80 +796,82 @@ def chat(conversation_id):
                     f"- From '{mem.get('conversation_title', 'Previous conversation')}': {mem.get('text', '')}" 
                     for mem in cybersec_memories["other"]
                 )
+                
+            # --- Format older memories for LLM prompt ---
+            memory_prompt = ""
+            if relevant_memories["current"]:
+                memory_prompt += "\nCurrent conversation context (most relevant):\n" + "\n".join(
+                    f"- {msg['role']}: {msg['text']}" for msg in relevant_memories["current"]
+                )
+            if relevant_memories["other"]:
+                memory_prompt += "\nRelevant information from other conversations:\n" + "\n".join(
+                    f"- In [{msg['conversation_id']}]: {msg['role']}: {msg['text']}" for msg in relevant_memories["other"]
+                )
+                
+            # --- Improved system prompt ---
+            system_prompt = (
+                "You are Moktashif, a smart and friendly cybersecurity assistant.\n"
+                "You have access to the user's previous conversations and replies. "
+                "When the user asks a question, always check if similar questions or relevant context exist in their past conversations (shown below). "
+                "If the user is replying to a specific message, use the content of that message as immediate context for their new question. "
+                "Always prioritize the most relevant and recent information, but do not repeat answers verbatim unless asked.\n"
+                "You are strictly limited to answering only cybersecurity-related questions.\n"
+                "If a user asks anything not related to cybersecurity — including famous people, sports, general trivia, or personal questions — you must politely refuse.\n"
+                "Say: 'I can only help with cybersecurity topics. Please ask something related to web security, hacking, threats, or protection.'\n"
+                "Do not provide answers outside the domain, even if you know them. Never break character.\n"
+                "Use a warm, human tone with short, clear answers. You can be casual or slightly witty when appropriate, especially in greetings or small talk.\n"
+                "Introduce yourself as 'Moktashif' only when it makes sense — such as during first-time greetings, re-engagement after a pause, or if the user asks who you are.\n"
+                "Don't overuse your name. Vary your language like a real human would.\n"
+                "Avoid technical jargon unless the user clearly understands it. Always favor helpful explanations over buzzwords.\n"
+                "Do not break character or explain that you're an AI. Stay in role as Moktashif.\n"
+                "Do not hallucinate or provide false information regarding the security field like if the user have asked you about new cve or new tools just tell them that you don't know.\n"
+                "If the user asks about something recent, breaking, or requests the latest information, you may use live web search results if available.\n"
+                "If you do not have enough information to answer, you may request to use the web search feature.\n"
+                "You are a cybersecurity expert. Provide accurate information about cybersecurity topics "
+                "based on your training data. If the user is asking about something that would require "
+                "real-time or recent information that might not be in your knowledge base, let them know "
+                "they should enable web search for the most up-to-date information."
+            )
             
-            # --- Hierarchical Summarization/Q&A for file analysis ---
-            if file_id and document_context:
-                from chat import hierarchical_summarize, qa_over_summary
-                def llm_api_func(prompt, model=None):
-                    completion = groq_api_call(
-                        messages=[{"role": "user", "content": prompt}],
-                        model=model or MODEL,
-                        temperature=TEMPERATURE,
-                        stream=False
-                    )
-                    return completion.get("choices", [{}])[0].get("message", {}).get("content", "")
-                general_file_questions = [
-                    "what do you think of this file", "summarize this file", "analyze this file", "overview of this file"
-                ]
-                if any(q in message.lower() for q in general_file_questions):
-                    answer = hierarchical_summarize(document_context, llm_api_func)
+            # If there are personal facts from other conversations, emphasize them
+            if contains_fact:
+                system_prompt += f"\n\nThe user just shared an important personal fact: {extracted_fact}"
+                
+            if cybersec_memory_prompt:
+                system_prompt += "\n\n" + cybersec_memory_prompt
+                
+            if reply_context_block:
+                system_prompt += reply_context_block
+                
+            if memory_prompt:
+                system_prompt += "\n\n" + memory_prompt
+            
+            # --- Document Context Integration ONLY if file_id is specified ---
+            if document_context and file_id:
+                if structured_findings:
+                    # Format structured findings as a numbered list for the LLM
+                    findings_str = "\n".join([
+                        f"{i+1}. Tags: {', '.join(f['tags'])} | URL: {f['url']} | Extras: {f['extras']}"
+                        for i, f in enumerate(structured_findings[:20])  # Limit to 20 for prompt size
+                    ])
+                    system_prompt += ("\n\nThe user uploaded a vulnerability scan file. Here is a numbered list of findings extracted from the document. Use these as reference when answering questions about vulnerabilities in the document:\n" + findings_str)
                 else:
-                    answer = qa_over_summary(document_context, message, llm_api_func)
-                for chunk in answer.splitlines(keepends=True):
-                    partial_reply += chunk
-                    yield chunk
-                if partial_reply:
-                    memory_store.add(user_id, conversation_id, partial_reply, role="assistant", extra={"replyTo": reply_to} if reply_to else None)
-                    assistant_message = {"role": "assistant", "content": partial_reply}
-                    if reply_to:
-                        assistant_message["replyTo"] = reply_to
-                    messages.append(assistant_message)
-                    conversation["messages"] = messages
-                    conversation["updated_at"] = current_time
-                    conversations[conversation_index] = conversation
-                    mongo.db.users.update_one(
-                        {"_id": ObjectId(user_id)},
-                        {"$set": {"conversations": conversations}}
+                    system_prompt += ("\n\nThe user has uploaded a document. Use the following as additional context when answering their queries: "
+                        f"\n---\n{document_context[:2000]}\n---\n"  # Limit context to first 2000 chars for LLM input size
                     )
-                return  # End after streaming hierarchical answer
             
-            if use_web_search:
+            # Enhance file context handling to use web search for file-related questions
+            file_related_keywords = ["file", "document", "scan", "result", "upload", "content", "analysis", 
+                                     "vulnerability", "finding", "report", "read", "interpret", "explain"]
+                                     
+            is_file_related_query = any(keyword in message.lower() for keyword in file_related_keywords)
+            
+            # If we have document context AND the query is about the file, use web search for better answers
+            if document_context and file_id and is_file_related_query:
+                use_web_search = True
                 auto_search_used = True
-                print("DEBUG: Using web search to answer question")
-                
-                # Prepare enhanced query with reply context if available
-                enhanced_query = message
-                context_info = ""
-                
-                # Add reply context to the query
-                if reply_context_block:
-                    context_info += f"\n\nREPLY CONTEXT: {reply_context_block}"
-                
-                # Add conversation history for context
-                if reply_context_messages:
-                    # Use the reply context messages for better context
-                    recent_context = "\n".join([
-                        f"{msg['role'].upper()}: {msg['content']}" 
-                        for msg in reply_context_messages[-5:] if msg.get('content')
-                    ])
-                    context_info += f"\n\nCONVERSATION CONTEXT:\n{recent_context}"
-                elif messages:
-                    # Fallback to recent messages
-                    recent_context = "\n".join([
-                        f"{msg['role'].upper()}: {msg['content']}" 
-                        for msg in messages[-5:] if msg.get('content')
-                    ])
-                    context_info += f"\n\nCONVERSATION CONTEXT:\n{recent_context}"
-                
-                # Add cross-conversation context
-                if cybersec_memory_prompt:
-                    context_info += f"\n\nCROSS-CONVERSATION CONTEXT: {cybersec_memory_prompt}"
-                
-                # Enhance the query with all context
-                if context_info:
-                    enhanced_query = f"{message}\n\nADDITIONAL CONTEXT FOR SEARCH:{context_info}"
-                
-                # Use cybersec_agent to answer
+                # Enhance the query with file content for better results
+                enhanced_query = f"{message} regarding: {document_context[:300]}..."
                 agent_result = answer_cybersec_query(enhanced_query)
                 answer = agent_result.get("answer", "[No answer]")
                 # Stream the answer to the client
@@ -859,8 +884,6 @@ def chat(conversation_id):
                     assistant_message = {"role": "assistant", "content": partial_reply}
                     if reply_to:
                         assistant_message["replyTo"] = reply_to
-                    # Mark this message as being from web search
-                    assistant_message["from_web_search"] = True
                     messages.append(assistant_message)
                     conversation["messages"] = messages
                     conversation["updated_at"] = current_time
@@ -939,8 +962,6 @@ def chat(conversation_id):
                 assistant_message = {"role": "assistant", "content": partial_reply}
                 if reply_to:
                     assistant_message["replyTo"] = reply_to
-                # Mark this message as being from web search
-                assistant_message["from_web_search"] = True
                 messages.append(assistant_message)
                 conversation["messages"] = messages
                 conversation["updated_at"] = current_time
@@ -1434,92 +1455,6 @@ def web_search_endpoint(conversation_id):
     )
     print(f"DEBUG WEB SEARCH: Saved user message with hasFile: {user_message.get('hasFile', False)}, fileName: {user_message.get('fileName', 'None')}")
 
-    # --- Get reply context (if replying to a message in current conversation) ---
-    reply_context_block = ""
-    reply_context_messages = None
-    reply_content_provided = False  # Track if content was provided in reply_to
-    
-    if reply_to:
-        # Check if we have edited content directly from the frontend
-        has_edited_content = (
-            isinstance(reply_to, dict) and 
-            reply_to.get('isCurrentVersion') and 
-            reply_to.get('content')
-        )
-        
-        # Find the index of the replied-to message
-        reply_idx = None
-        
-        # Check if index is directly provided in the reply_to object
-        if isinstance(reply_to, dict) and reply_to.get('index') is not None:
-            try:
-                index = int(reply_to['index'])
-                if 0 <= index < len(messages):
-                    reply_idx = index
-                    print(f"DEBUG WEB SEARCH: Found reply message at index {index}")
-                    
-                    # If we're replying to the edited version, use the content from reply_to
-                    if has_edited_content:
-                        # Create a temporary message with the edited content for the AI context
-                        content_to_use = reply_to.get('content')
-                        reply_content_provided = True
-                        print(f"DEBUG WEB SEARCH: Using edited content from reply_to: {content_to_use[:50]}...")
-            except (ValueError, TypeError):
-                print(f"DEBUG WEB SEARCH: Invalid index in reply_to: {reply_to.get('index')}")
-        
-        # If no valid index or we haven't found content yet, fall back to content matching
-        if reply_idx is None or not reply_content_provided:
-            print(f"DEBUG WEB SEARCH: Falling back to content matching for reply_to")
-            for idx, m in enumerate(messages):
-                # If we have a flag that this is the current version being displayed,
-                # and we have a content match, then use the content directly
-                if has_edited_content:
-                    content_match = m.get("content") == reply_to.get("content")
-                    # If the content doesn't match, it might be because we're replying to an edited version
-                    # Check if original content or any version matches
-                    if not content_match and 'versions' in m:
-                        for version in m.get('versions', []):
-                            if version.get('content') == reply_to.get('content'):
-                                content_match = True
-                                break
-                    
-                    if content_match:
-                        reply_idx = idx
-                        content_to_use = reply_to.get('content')
-                        reply_content_provided = True
-                        print(f"DEBUG WEB SEARCH: Found content match using current version at index {idx}")
-                        break
-                elif (
-                    (isinstance(reply_to, dict) and m.get("content") == reply_to.get("content")) or
-                    (isinstance(reply_to, str) and m.get("content") == reply_to)
-                ):
-                    reply_idx = idx
-                    print(f"DEBUG WEB SEARCH: Found content match at index {idx}")
-                    break
-        
-        if reply_idx is not None:
-            print(f"DEBUG WEB SEARCH: Setting up reply context with message at index {reply_idx}")
-            # Prepare the context messages
-            if reply_content_provided:
-                # If we have content from reply_to, use that to create a modified context
-                messages_context = messages.copy()
-                messages_context[reply_idx] = {
-                    **messages[reply_idx],
-                    "content": reply_to.get('content')
-                }
-                reply_context_messages = messages_context[:reply_idx+1]
-                reply_context_block = ("\nThe user is replying to this previous message:\n---\n" + 
-                                      reply_to.get('content') + 
-                                      "\n---\n")
-            else:
-                # Use standard message content
-                reply_context_messages = messages[:reply_idx+1]
-                reply_context_block = ("\nThe user is replying to this previous message:\n---\n" + 
-                                      str(messages[reply_idx].get("content", "")) + 
-                                      "\n---\n")
-        else:
-            print(f"DEBUG WEB SEARCH: No matching message found for reply_to: {reply_to}")
-
     def generate():
         import sys
         import json
@@ -1606,37 +1541,6 @@ def web_search_endpoint(conversation_id):
                 print(f"DEBUG WEB SEARCH: Adding cross-conversation context to query")
                 enhanced_message = f"{enhanced_message}\n\nAdditional context: {cross_context}"
             
-            # --- Add reply context and conversation history for web search ---
-            context_info = ""
-            
-            # Add reply context to the query
-            if reply_context_block:
-                context_info += f"\n\nREPLY CONTEXT: {reply_context_block}"
-                print(f"DEBUG WEB SEARCH: Adding reply context to search query")
-            
-            # Add conversation history for context
-            if reply_context_messages:
-                # Use the reply context messages for better context
-                recent_context = "\n".join([
-                    f"{msg['role'].upper()}: {msg['content']}" 
-                    for msg in reply_context_messages[-5:] if msg.get('content')
-                ])
-                context_info += f"\n\nCONVERSATION CONTEXT:\n{recent_context}"
-                print(f"DEBUG WEB SEARCH: Using reply context messages for conversation context")
-            elif messages:
-                # Fallback to recent messages
-                recent_context = "\n".join([
-                    f"{msg['role'].upper()}: {msg['content']}" 
-                    for msg in messages[-5:] if msg.get('content')
-                ])
-                context_info += f"\n\nCONVERSATION CONTEXT:\n{recent_context}"
-                print(f"DEBUG WEB SEARCH: Using recent messages for conversation context")
-            
-            # Enhance the message with all context
-            if context_info:
-                enhanced_message = f"{enhanced_message}\n\nADDITIONAL CONTEXT FOR SEARCH:{context_info}"
-                print(f"DEBUG WEB SEARCH: Enhanced message with full context (length: {len(enhanced_message)})")
-            
             # Always use web search for this endpoint
             print(f"DEBUG WEB SEARCH: Sending message to cybersec_agent: {enhanced_message[:100]}...")
             agent_result = answer_cybersec_query(enhanced_message, force_web_search=True)
@@ -1675,8 +1579,6 @@ def web_search_endpoint(conversation_id):
                 assistant_message = {"role": "assistant", "content": partial_reply}
                 if reply_to:
                     assistant_message["replyTo"] = reply_to
-                # Mark this message as being from web search
-                assistant_message["from_web_search"] = True
                 messages.append(assistant_message)
                 conversation["messages"] = messages
                 conversation["updated_at"] = current_time
