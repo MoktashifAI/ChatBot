@@ -1392,6 +1392,9 @@ def web_search_endpoint(conversation_id):
     file_id = data.get('file_id')  # Get file_id if provided
     
     print(f"DEBUG WEB SEARCH: Received message with file_id: {file_id}")
+    print(f"DEBUG WEB SEARCH: Received reply_to data: {reply_to}")
+    if isinstance(reply_to, dict):
+        print(f"DEBUG WEB SEARCH: reply_to keys: {reply_to.keys()}")
     
     if not message:
         return jsonify({"msg": "Message required."}), 400
@@ -1468,6 +1471,81 @@ def web_search_endpoint(conversation_id):
         print(f"DEBUG WEB SEARCH: GOOGLE_CSE_ID exists: {'Yes' if os.getenv('GOOGLE_CSE_ID') else 'No'}")
         
         try:
+            # --- Get reply context (if replying to a message in current conversation) ---
+            reply_context_block = ""
+            reply_context_messages = None
+            reply_content = None
+            reply_content_provided = False
+            
+            if reply_to:
+                # Check if we have edited content directly from the frontend
+                has_edited_content = (
+                    isinstance(reply_to, dict) and 
+                    reply_to.get('isCurrentVersion') and 
+                    reply_to.get('content')
+                )
+                
+                # Find the index of the replied-to message
+                reply_idx = None
+                
+                # Check if index is directly provided in the reply_to object
+                if isinstance(reply_to, dict) and reply_to.get('index') is not None:
+                    try:
+                        index = int(reply_to['index'])
+                        if 0 <= index < len(messages):
+                            reply_idx = index
+                            print(f"DEBUG WEB SEARCH: Found reply message at index {index}")
+                            
+                            # If we're replying to the edited version, use the content from reply_to
+                            if has_edited_content:
+                                reply_content = reply_to.get('content')
+                                reply_content_provided = True
+                                print(f"DEBUG WEB SEARCH: Using edited content from reply_to: {reply_content[:50]}...")
+                    except (ValueError, TypeError):
+                        print(f"DEBUG WEB SEARCH: Invalid index in reply_to: {reply_to.get('index')}")
+                
+                # If no valid index or we haven't found content yet, fall back to content matching
+                if reply_idx is None or not reply_content_provided:
+                    print(f"DEBUG WEB SEARCH: Falling back to content matching for reply_to")
+                    for idx, m in enumerate(messages):
+                        if has_edited_content:
+                            content_match = m.get("content") == reply_to.get("content")
+                            # Check for matches in previous versions
+                            if not content_match and 'versions' in m:
+                                for version in m.get('versions', []):
+                                    if version.get('content') == reply_to.get('content'):
+                                        content_match = True
+                                        break
+                            
+                            if content_match:
+                                reply_idx = idx
+                                reply_content = reply_to.get('content')
+                                reply_content_provided = True
+                                print(f"DEBUG WEB SEARCH: Found content match using current version at index {idx}")
+                                break
+                        elif (
+                            (isinstance(reply_to, dict) and m.get("content") == reply_to.get("content")) or
+                            (isinstance(reply_to, str) and m.get("content") == reply_to)
+                        ):
+                            reply_idx = idx
+                            reply_content = m.get("content")
+                            print(f"DEBUG WEB SEARCH: Found content match at index {idx}")
+                            break
+                
+                if reply_idx is not None:
+                    print(f"DEBUG WEB SEARCH: Setting up reply context with message at index {reply_idx}")
+                    # Get the content of the replied-to message
+                    if not reply_content:
+                        reply_content = messages[reply_idx].get("content", "")
+                    
+                    # Create context block with the content we're replying to
+                    reply_context_block = (
+                        f"\nThe user is replying to this previous message:\n---\n{reply_content}\n---\n"
+                    )
+                    print(f"DEBUG WEB SEARCH: Created reply context block of {len(reply_context_block)} chars")
+                else:
+                    print(f"DEBUG WEB SEARCH: No matching message found for reply_to: {reply_to}")
+
             # If there's a file_id, include the document in the search query
             document_context = None
             filename = None
@@ -1533,9 +1611,15 @@ def web_search_endpoint(conversation_id):
             
             # Use the document context in the search if available
             enhanced_message = message
+            
+            # Add reply context to enhanced message if available
+            if reply_context_block:
+                print(f"DEBUG WEB SEARCH: Adding reply context to enhanced message")
+                enhanced_message = f"{message}\n\nPrevious message context: {reply_content}"
+                
             if document_context:
                 print(f"DEBUG WEB SEARCH: Enhancing message with document context")
-                enhanced_message = f"{message} regarding file '{filename}': {document_context[:300]}..."
+                enhanced_message = f"{enhanced_message} regarding file '{filename}': {document_context[:300]}..."
                 
             if cross_context:
                 print(f"DEBUG WEB SEARCH: Adding cross-conversation context to query")
