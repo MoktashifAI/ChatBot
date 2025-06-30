@@ -1,119 +1,33 @@
-Thank you! Here's your `README.md` for **CyberSecGPT**, rewritten in the **exact same structure and format** as the example you provided:
+🚀 Moktashif: Cybersecurity Chat Application
 
----
 
-# CyberSecGPT: Cybersecurity Chat Application
+Moktashif is a full-stack cybersecurity chat platform powered by Large Language Models (LLMs). It enables secure document analysis, real-time chat, and persistent semantic memory for enhanced cybersecurity insights.
+✨ Features
 
-**CyberSecGPT** is a full-stack cybersecurity chat platform powered by LLMs. It offers secure document analysis, real-time chat, and persistent semantic memory, making it ideal for cybersecurity analysts and researchers. The application includes a Flask backend, React frontend, and MongoDB for data persistence.
+    🔐 User Authentication (JWT-based)
 
----
+    💬 Multiple Chat Conversations (create, rename, delete)
 
-## Features
+    📁 File Upload & Document Analysis
 
-* **JWT-Based Authentication**: Secure user login and registration system.
-* **Multi-Conversation Support**: Create, rename, and delete chat sessions.
-* **File Upload & Analysis**: Upload documents for LLM-assisted cybersecurity insights.
-* **Real-Time Chat Interface**: Markdown and code highlighting supported.
-* **Semantic Memory**: Pinecone-powered memory retrieval and MongoDB persistence.
-* **Containerized Deployment**: Fully Dockerized setup for easy deployment.
+    🧠 LLM-Driven Real-Time Chat (Markdown + Code Highlighting)
 
----
+    🗃 Persistent Memory & Semantic Search (Pinecone + MongoDB)
 
-## Project Structure
+    🎨 Responsive UI (React + Tailwind CSS)
 
-```
-├── chat.py                # Flask backend (entry point)
-├── requirements.txt       # Python dependencies
-├── frontend/              # React frontend source code
-│   ├── Dockerfile         # Frontend Dockerfile
-│   └── ...
-├── uploads/               # Uploaded files storage
-├── docker-compose.yml     # Docker Compose configuration
-├── Dockerfile             # Backend Dockerfile
-└── .env                   # Environment variables file
-```
+⚙️ Prerequisites
 
----
+    Docker
 
-## Installation
+    Docker Compose
 
-### Prerequisites
+    (Optional for Dev): Node.js v14+, Python 3.10+
 
-* Docker and Docker Compose
-* (For manual development): Python 3.10+ and Node.js 14+
+📦 Environment Variables
 
-### Local Setup (Manual)
+Create a .env file in the root directory with the following values:
 
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/your-repo/cybersecgpt.git
-   cd cybersecgpt
-   ```
-
-2. Create a `.env` file in the project root:
-
-   ```bash
-   MONGO_URI=mongodb://mongo:27017/vuln_analyzer
-   JWT_SECRET=your_jwt_secret
-
-   PINECONE_API_KEY=your_pinecone_api_key
-
-   API_KEY=your_llm_api_key
-   MODEL=your_model_name
-   BASE_URL=https://api.llm-provider.com
-   TEMPERATURE=0.6
-   ```
-
-3. Run the backend:
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # On Windows use: venv\Scripts\activate
-   pip install -r requirements.txt
-   python chat.py
-   ```
-
-4. Run the frontend:
-
-   ```bash
-   cd frontend
-   npm install
-   npm start
-   ```
-
----
-
-## Docker Deployment
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/your-repo/cybersecgpt.git
-   cd cybersecgpt
-   ```
-
-2. Create your `.env` file in the root directory (see [Installation](#installation)).
-
-3. Build and run all services:
-
-   ```bash
-   docker-compose up --build
-   ```
-
-4. Access the application:
-
-   * Frontend: [http://localhost:3000](http://localhost:3000)
-   * Backend API: [http://localhost:5000](http://localhost:5000)
-   * MongoDB: `localhost:27017`
-
----
-
-## Environment Variables
-
-These should be placed in a `.env` file at the project root:
-
-```env
 # MongoDB
 MONGO_URI=mongodb://mongo:27017/vuln_analyzer
 JWT_SECRET=your_jwt_secret
@@ -126,41 +40,60 @@ API_KEY=your_llm_api_key
 MODEL=your_model_name
 BASE_URL=https://api.llm-provider.com
 TEMPERATURE=0.6
-```
 
----
+🚀 Quick Start (Docker Compose)
 
-## API Overview
+    Clone the repository:
 
-The backend provides REST endpoints for:
+git clone https://github.com/MoktashifAI/ChatBot.git
+cd grad
 
-* **User authentication** (`/register`, `/login`)
-* **Chat management** (`/chats`, `/chats/:id`)
-* **Message exchange** (`/chat/:id/message`)
-* **File upload and analysis** (`/upload`)
+Add your .env file to the project root.
 
-*Documentation is accessible via Swagger or Postman collection (optional to add).*
+Build & launch the services:
 
----
+    docker-compose up --build
 
-## Notes
+    Access the application:
 
-* Uploaded documents are stored in the `uploads/` folder (Docker volume).
-* MongoDB data is persisted using Docker volume `mongo-data`.
-* Frontend automatically proxies API calls to the backend on port `5000`.
-* Make sure to use **strong secrets and keys in production** environments.
+        🌐 Frontend: http://localhost:3000
 
----
+        🔙 Backend API: http://localhost:5000
 
-## License
+        🧩 MongoDB: mongodb://localhost:27017
 
-MIT License — Feel free to modify and use as needed.
+🧪 Manual Development Setup
+📡 Backend (Flask)
 
----
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python chat.py
 
-Let me know if you'd like to include:
+🌐 Frontend (React)
 
-* Swagger docs or OpenAPI schema
-* Example `.env` file committed as `.env.example`
-* Screenshots or usage videos
-* CI/CD instructions (GitHub Actions, etc.)
+cd frontend
+npm install
+npm start
+
+🧭 Project Structure
+
+├── chat.py                # Flask backend (entry point)
+├── requirements.txt       # Python dependencies
+├── frontend/              # React frontend
+│   ├── Dockerfile
+│   └── ...
+├── uploads/               # Uploaded file storage
+├── docker-compose.yml     # Service orchestration
+├── Dockerfile             # Backend Dockerfile
+└── ...
+
+🗒 Notes
+
+    Uploaded files are stored persistently in the uploads/ directory (Docker volume).
+
+    MongoDB data is stored in the mongo-data volume.
+
+    Use strong secrets in .env for production environments.
+
+    Frontend proxies API calls to the backend running on port 5000.
