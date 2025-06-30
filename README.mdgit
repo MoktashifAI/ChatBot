@@ -45,7 +45,7 @@ TEMPERATURE=0.6
 
     Clone the repository:
 
-git clone <your-repo-url>
+git clone https://github.com/MoktashifAI/ChatBot.git
 cd grad
 
 Add your .env file to the project root.
