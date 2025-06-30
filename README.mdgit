@@ -1,29 +1,33 @@
-# CyberSecGPT: Cybersecurity Chat Application
+🚀 CyberSecGPT: Cybersecurity Chat Application
 
-CyberSecGPT is a full-stack cybersecurity chat platform powered by LLMs. It features a secure backend (Flask), a modern React frontend, and persistent storage with MongoDB. The app supports user authentication, file uploads, conversation management, and advanced document analysis for cybersecurity insights.
 
----
+CyberSecGPT is a full-stack cybersecurity chat platform powered by Large Language Models (LLMs). It enables secure document analysis, real-time chat, and persistent semantic memory for enhanced cybersecurity insights.
+✨ Features
 
-## Features
-- User authentication (JWT-based)
-- Multiple chat conversations (create, rename, delete)
-- File upload and document analysis
-- Real-time chat with markdown/code support
-- Persistent memory and semantic search (Pinecone, MongoDB)
-- Responsive UI (React + Tailwind CSS)
+    🔐 User Authentication (JWT-based)
 
----
+    💬 Multiple Chat Conversations (create, rename, delete)
 
-## Prerequisites
-- [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/)
-- (For manual dev) Node.js 14+ and Python 3.10+
+    📁 File Upload & Document Analysis
 
----
+    🧠 LLM-Driven Real-Time Chat (Markdown + Code Highlighting)
 
-## Environment Variables
-Create a `.env` file in the project root with the following (example values):
+    🗃 Persistent Memory & Semantic Search (Pinecone + MongoDB)
 
-```
+    🎨 Responsive UI (React + Tailwind CSS)
+
+⚙️ Prerequisites
+
+    Docker
+
+    Docker Compose
+
+    (Optional for Dev): Node.js v14+, Python 3.10+
+
+📦 Environment Variables
+
+Create a .env file in the root directory with the following values:
+
 # MongoDB
 MONGO_URI=mongodb://mongo:27017/vuln_analyzer
 JWT_SECRET=your_jwt_secret
@@ -36,70 +40,60 @@ API_KEY=your_llm_api_key
 MODEL=your_model_name
 BASE_URL=https://api.llm-provider.com
 TEMPERATURE=0.6
-```
 
----
+🚀 Quick Start (Docker Compose)
 
-## Quick Start (Docker Compose)
+    Clone the repository:
 
-1. **Clone the repo:**
-   ```bash
-   git clone <your-repo-url>
-   cd grad
-   ```
-2. **Create your `.env` file** (see above).
-3. **Build and run all services:**
-   ```bash
-   docker-compose up --build
-   ```
-4. **Access the app:**
-   - Frontend: [http://localhost:3000](http://localhost:3000)
-   - Backend API: [http://localhost:5000](http://localhost:5000)
-   - MongoDB: [localhost:27017](mongodb://localhost:27017)
+git clone <your-repo-url>
+cd grad
 
----
+Add your .env file to the project root.
 
-## Manual Development Setup
+Build & launch the services:
 
-### Backend (Flask)
-```bash
+    docker-compose up --build
+
+    Access the application:
+
+        🌐 Frontend: http://localhost:3000
+
+        🔙 Backend API: http://localhost:5000
+
+        🧩 MongoDB: mongodb://localhost:27017
+
+🧪 Manual Development Setup
+📡 Backend (Flask)
+
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python chat.py
-```
 
-### Frontend (React)
-```bash
+🌐 Frontend (React)
+
 cd frontend
 npm install
 npm start
-```
 
----
+🧭 Project Structure
 
-## Project Structure
-```
-├── chat.py                # Flask backend (main entry)
+├── chat.py                # Flask backend (entry point)
 ├── requirements.txt       # Python dependencies
 ├── frontend/              # React frontend
-│   ├── Dockerfile         # Frontend Dockerfile
+│   ├── Dockerfile
 │   └── ...
-├── uploads/               # Uploaded files (persisted)
-├── docker-compose.yml     # Orchestration
+├── uploads/               # Uploaded file storage
+├── docker-compose.yml     # Service orchestration
 ├── Dockerfile             # Backend Dockerfile
 └── ...
-```
 
----
+🗒 Notes
 
-## Notes
-- Uploaded files are persisted in the `uploads/` directory (mounted as a Docker volume).
-- MongoDB data is persisted in a Docker volume (`mongo-data`).
-- For production, set strong secrets in your `.env` file.
-- The frontend proxies API requests to the backend at port 5000.
+    Uploaded files are stored persistently in the uploads/ directory (Docker volume).
 
----
+    MongoDB data is stored in the mongo-data volume.
 
-## License
-MIT (or your license here) 
+    Use strong secrets in .env for production environments.
+
+    Frontend proxies API calls to the backend running on port 5000.
