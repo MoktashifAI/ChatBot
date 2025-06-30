@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: grad-backend
+    env_file:
+      - .env
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/vuln_analyzer
+      - UPLOAD_FOLDER=/app/uploads
+    volumes:
+      - ./uploads:/app/uploads
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: grad-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:6.0
+    container_name: grad-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data: 
